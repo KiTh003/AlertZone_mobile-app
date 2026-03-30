@@ -1,17 +1,27 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, TextInput, Pressable, Image, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from 'react-native';
+import { 
+  View, 
+  Text, 
+  TextInput, 
+  Pressable, 
+  Image, 
+  KeyboardAvoidingView, 
+  Platform, 
+  ScrollView, 
+  ActivityIndicator, 
+  Modal 
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { cssInterop } from "nativewind";
 import Toast from 'react-native-toast-message';
+import { BlurView } from 'expo-blur'; 
 
-// Import your Firebase configuration
+// Firebase Imports
 import { auth, db } from '../../services/firebase'; 
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 
-cssInterop(LinearGradient, { className: "style" });
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -21,6 +31,7 @@ export default function RegisterScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
 
   // Form Data States
   const [fullName, setFullName] = useState('');
@@ -35,10 +46,50 @@ export default function RegisterScreen() {
   const passwordRef     = useRef<TextInput>(null);
   const confirmPassRef  = useRef<TextInput>(null);
 
+const validatePassword = (password:string) => {
+  let isValidPassword= true;
+
+  // Minimum 8 characters
+  if (!/.{8,}/.test(password)) {
+    Toast.show({
+      type: "error",
+      text1: "Password too short",
+      text2: "Password must be at least 8 characters long.",
+    });
+    isValidPassword= false;
+  }
+
+  // At least one uppercase letter
+  if (!/[A-Z]/.test(password)) {
+    Toast.show({
+      type: "error",
+      text1: "Missing Uppercase",
+      text2: "Password must contain at least one uppercase letter.",
+    });
+    isValidPassword= false;
+  }
+
+  // At least one number
+  if (!/[0-9]/.test(password)) {
+    Toast.show({
+      type: "error",
+      text1: "Missing Number",
+      text2: "Password must contain at least one number.",
+    });
+    isValidPassword= false;
+  }
+
+  return isValidPassword;
+};
+
   const handleSignUp = async () => {
     if (!fullName || !email || !phone || !password) {
       Toast.show({ type: 'error', text1: 'Missing Info', text2: 'Please fill in all fields to join AlertZone.' });
       return;
+    }
+    if (!validatePassword(password)) {
+        // If invalid, stop further execution
+        return;
     }
     if (password !== confirmPassword) {
       Toast.show({ type: 'error', text1: 'Password Error', text2: 'Passwords do not match.' });
@@ -56,6 +107,8 @@ export default function RegisterScreen() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
+      await sendEmailVerification(user);
+
       await setDoc(doc(db, "users", user.uid), {
         fullName,
         email,
@@ -64,64 +117,50 @@ export default function RegisterScreen() {
         createdAt: new Date().toISOString(),
         uid: user.uid,
         status: 'active',
+        isVerified: false
       });
 
-      console.log("✅ Citizen Registered:", user.email);
-
-      Toast.show({ type: 'success', text1: 'Registration Successful!', text2: 'Please login with your credentials.' });
-
-      setTimeout(() => router.replace("/(auth)/loginScreen"), 1500);
+      console.log("✅ Citizen Registered & Verification Link Sent");
+      Toast.show({ type: 'success', text1: 'Registration Successful', text2: "Verify your email" });
+      setLoading(false);
+      setIsSuccessModalVisible(true);
 
     } catch (error: any) {
       console.error("❌ Firebase Error:", error.code);
+      setLoading(false);
       
       let message = "An error occurred during sign up.";
-      if (error.code === 'auth/email-already-in-use') message = "This email is already in use.";
-      if (error.code === 'auth/invalid-email')        message = "Please enter a valid email address.";
-      if (error.code === 'auth/weak-password')        message = "Password should be at least 6 characters.";
+      if (error.code === 'auth/email-already-in-use')  message = "This email is already in use.";
+      if (error.code === 'auth/invalid-email')         message = "Please enter a valid email address.";
+      if (error.code === 'auth/weak-password')         message = "Password should be at least 6 characters.";
 
       Toast.show({ type: 'error', text1: 'Sign Up Failed', text2: message });
-
-    } finally {
-      setLoading(false);
     }
   };
 
+
   return (
     <LinearGradient colors={['#0D1F2D', '#0A1820', '#071318']} className="flex-1">
-      {/*
-        ✅ FIX 1: Use behavior="padding" for BOTH platforms.
-           "height" on Android doesn't push the content up — it shrinks the
-           container, which clips the bottom inputs instead of scrolling to them.
-        ✅ FIX 2: keyboardVerticalOffset gives a small buffer on Android so the
-           focused input isn't sitting right at the keyboard edge.
-      */}
       <KeyboardAvoidingView
         behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'android' ? 30 : 0}
         className="flex-1"
       >
-        {/*
-          ✅ FIX 3: keyboardShouldPersistTaps="handled" — without this, tapping
-             the confirm-password field first dismisses the keyboard (needing a
-             second tap), and the view never scrolls to reveal it.
-          ✅ FIX 4: paddingBottom on contentContainerStyle ensures the last
-             inputs are never clipped behind the keyboard even after scrolling.
-        */}
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
           <View className="flex-1 px-8 pt-12 pb-10 justify-center">
             
+            {/* Header */}
             <View className="items-center mb-6">
               <Image source={require('../../assets/images/iconAlerZone-Bg-none.png')} className="w-20 h-20" resizeMode="contain" />
               <Text className="text-white text-3xl font-bold mt-4">Create Account</Text>
               <Text className="text-gray-400 mt-1">Get started with AlertZone.</Text>
             </View>
 
+            {/* Inputs Section */}
             <View className="space-y-2">
               {/* Full Name */}
               <View className="bg-[#1E3A44] border border-[#2D4F5C] rounded-2xl p-2 flex-row items-center">
@@ -131,7 +170,7 @@ export default function RegisterScreen() {
                   <TextInput
                     placeholder="John Snow"
                     placeholderTextColor="#5A7D8A"
-                    className="text-white text-base"
+                    className="text-white text-base p-0 mt-0.5"
                     style={{ paddingLeft: 0, marginLeft: 0 }}
                     returnKeyType="next"
                     onSubmitEditing={() => emailRef.current?.focus()}
@@ -150,7 +189,7 @@ export default function RegisterScreen() {
                     ref={emailRef}
                     placeholder="john@email.com"
                     placeholderTextColor="#5A7D8A"
-                    className="text-white text-base"
+                    className="text-white text-base p-0 mt-0.5"
                     style={{ paddingLeft: 0, marginLeft: 0 }}
                     keyboardType="email-address"
                     autoCapitalize="none"
@@ -171,7 +210,7 @@ export default function RegisterScreen() {
                     ref={phoneRef}
                     placeholder="+94 7X XXX XXXX"
                     placeholderTextColor="#5A7D8A"
-                    className="text-white text-base"
+                    className="text-white text-base p-0 mt-0.5"
                     style={{ paddingLeft: 0, marginLeft: 0 }}
                     keyboardType="phone-pad"
                     returnKeyType="next"
@@ -191,7 +230,7 @@ export default function RegisterScreen() {
                     ref={passwordRef}
                     placeholder="••••••••••••"
                     placeholderTextColor="#5A7D8A"
-                    className="text-white text-base"
+                    className="text-white text-base p-0 mt-0.5"
                     style={{ paddingLeft: 0, marginLeft: 0 }}
                     secureTextEntry={!showPassword}
                     returnKeyType="next"
@@ -214,7 +253,7 @@ export default function RegisterScreen() {
                     ref={confirmPassRef}
                     placeholder="••••••••••••"
                     placeholderTextColor="#5A7D8A"
-                    className="text-white text-base"
+                    className="text-white text-base p-0 mt-0.5"
                     style={{ paddingLeft: 0, marginLeft: 0 }}
                     secureTextEntry={!showConfirmPassword}
                     returnKeyType="done"
@@ -229,7 +268,14 @@ export default function RegisterScreen() {
               </View>
             </View>
 
-            {/* Terms */}
+
+            <View className="mt-2 px-1">
+                <Text className="text-gray-400 text-sm">
+                    Password must be at least 8 characters long, include an uppercase letter and a number.
+                </Text>
+            </View>
+
+            {/* Terms Checkbox */}
             <View className="flex-row items-center mt-4 px-1">
               <Pressable
                 className={`w-5 h-5 rounded border ${agreeTerms ? 'bg-[#30A89C] border-[#30A89C]' : 'border-gray-500'} items-center justify-center`}
@@ -242,7 +288,7 @@ export default function RegisterScreen() {
               </Text>
             </View>
 
-            {/* Buttons */}
+            {/* Primary Action Buttons */}
             <View className="mt-6">
               <Pressable
                 className={`p-4 rounded-full shadow-lg items-center ${loading ? 'bg-[#4CC2D1]/50' : 'bg-[#4CC2D1]'}`}
@@ -270,6 +316,55 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* --- SUCCESS MODAL --- */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isSuccessModalVisible}
+      >
+        {/* ✅ BlurView replaces the plain black overlay — frosted glass effect */}
+        <BlurView
+          intensity={100}
+          tint="dark"
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}
+        >
+          <View className="bg-[#1E3A44] border border-[#30A89C] rounded-3xl p-8 w-full items-center shadow-2xl">
+            
+            <View className="bg-[#30A89C]/20 p-5 rounded-full mb-6">
+              <Ionicons name="mail-unread-outline" size={60} color="#4CC2D1" />
+            </View>
+
+            <Text className="text-white text-2xl font-bold text-center">
+              Verify Your Email
+            </Text>
+            
+            <Text className="text-gray-300 text-center mt-4 leading-6">
+              A verification link has been sent to:{"\n"}
+              <Text className="text-[#4CC2D1] font-bold">{email}</Text>
+            </Text>
+
+            <Text className="text-gray-400 text-xs text-center mt-6 italic">
+              Please check your inbox (and spam folder) before logging in.
+            </Text>
+
+            <View className="space-y-3 mb-6 active:opacity-70">
+              <Pressable 
+                className="border border-gray-500 p-4 rounded-xl mt-3 mb-3"
+                onPress={() => {
+                  setIsSuccessModalVisible(false);
+                  router.replace("/(auth)/loginScreen");
+                }}
+              >
+                <Text className="text-gray-300 text-center font-medium">
+                  Proceed to Login
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </BlurView>
+      </Modal>
+
     </LinearGradient>
   );
 }
