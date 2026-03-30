@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -39,7 +39,6 @@ export default function ForgotPasswordScreen() {
 
     setLoading(true);
     try {
-      // 1. Firebase Reset Logic
       await sendPasswordResetEmail(auth, email);
 
         Toast.show({
@@ -71,12 +70,20 @@ export default function ForgotPasswordScreen() {
 
   return (
     <LinearGradient colors={['#0D1F2D', '#0A1820', '#071318']} className="flex-1">
+
+      {/* ✅ behavior="padding" + keyboardVerticalOffset fixes keyboard hiding the input */}
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'android' ? 30 : 0}
         className="flex-1"
       >
-
-        <ScrollView contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+        {/* ✅ keyboardShouldPersistTaps so the button stays tappable while keyboard is open */}
+        <ScrollView
+          contentContainerStyle={{ flexGrow: 1, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View className="flex-1 px-8 justify-center">
             
             {/* Header Section */}
@@ -116,6 +123,9 @@ export default function ForgotPasswordScreen() {
                     onFocus={() => setIsEmailFocused(true)}
                     onBlur={() => setIsEmailFocused(false)}
                     editable={!loading}
+                    // ✅ "Done" on keyboard submits the form directly
+                    returnKeyType="done"
+                    onSubmitEditing={handleReset}
                 />
                 </View>
 
